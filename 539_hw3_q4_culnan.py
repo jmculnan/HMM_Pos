@@ -355,7 +355,7 @@ for j in range(3):
     if j % 5 == 0:
         print("batch {}".format(j+1))
         sample = forward_pass(convert_words(sample_sentence))
-        predictions = [i2l[p] for p in predict(sample)]
+        predictions = [reverse_labels[p] for p in predict(sample)]
         print(list(zip(sample_sentence, predictions)))
 
 #from capizzi's tutorial
@@ -385,8 +385,8 @@ def test():
         # begin a clean computational graph
         dy.renew_cg()
         # build the batch
-        batch_tokens = test_tokens[j*batch_size:(j+1)*batch_size]
-        batch_labels = test_tokens[j*batch_size:(j+1)*batch_size]
+        batch_tokens = split_sentences(train)[0][j*batch_size:(j+1)*batch_size]
+        batch_labels = train_labels[j*batch_size:(j+1)*batch_size]
         # iterate through the batch
         for k in range(len(batch_tokens)):
             # prepare input: words to indexes
@@ -402,3 +402,61 @@ final_predictions = test()
 overall_accuracy, sentence_accuracy = evaluate(final_predictions, test_labels)
 print("overall accuracy: {}".format(overall_accuracy))
 print("sentence accuracy (all tags in sentence correct): {}".format(sentence_accuracy))
+
+################
+# HYPERPARAMETER
+################
+num_epochs = 5
+
+def train():
+
+    # i = epoch index
+    # j = batch index
+    # k = sentence index (inside batch j)
+    # l = token index (inside sentence k)
+
+    epoch_losses = []
+    overall_accuracies = []
+    sentence_accuracies = []
+    
+    for i in range(num_epochs):
+        epoch_loss = []
+        for j in range(num_batches_training):
+            # begin a clean computational graph
+            dy.renew_cg()
+            # build the batch
+            batch_tokens = train_tokens[j*batch_size:(j+1)*batch_size]
+            batch_labels = train_labels[j*batch_size:(j+1)*batch_size]
+            # iterate through the batch
+            for k in range(len(batch_tokens)):
+                # prepare input: words to indexes
+                seq_of_idxs = words2indexes(batch_tokens[k], w2i)
+                # make a forward pass
+                preds = forward_pass(seq_of_idxs)
+                # calculate loss for each token in each example
+                loss = [dy.pickneglogsoftmax(preds[l], batch_labels[k][l]) for l in range(len(preds))]
+                # sum the loss for each token
+                sent_loss = dy.esum(loss)
+                # backpropogate the loss for the sentence
+                sent_loss.backward()
+                trainer.update()
+                epoch_loss.append(sent_loss.npvalue())
+            # check prediction of sample sentence
+            if j % 250 == 0:
+                print("epoch {}, batch {}".format(i+1, j+1))
+                sample = forward_pass(words2indexes(sample_sentence, w2i))
+                predictions = [i2l[p] for p in predict(sample)]
+                print(list(zip(sample_sentence, predictions)))
+        # record epoch loss
+        epoch_losses.append(np.sum(epoch_loss))
+        # get accuracy on test set
+        print("testing after epoch {}".format(i+1))
+        epoch_predictions = test()
+        epoch_overall_accuracy, epoch_sentence_accuracy = evaluate(epoch_predictions, test_labels)
+        overall_accuracies.append(epoch_overall_accuracy)
+        sentence_accuracies.append(epoch_sentence_accuracy)
+        
+    return epoch_losses, overall_accuracies, sentence_accuracies
+
+losses, overall_accs, sentence_accs = train()
+
