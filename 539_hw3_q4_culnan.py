@@ -321,8 +321,8 @@ def word_accuracy(dataset, results):
     return correct_count, total_count, accuracy, unknown_corr, unknown_total, unk_acc
 
 batch_size = 256
-num_batches_training = int(np.ceil(len(make_data(train)[0]) / batch_size))
-num_batches_testing  = int(np.ceil(len(make_data(test)[0]) / batch_size))
+num_batches_training = int(np.ceil(len(split_sentences(train)[0]) / batch_size))
+num_batches_testing  = int(np.ceil(len(split_sentences(test)[0]) / batch_size))
 print(num_batches_training, num_batches_testing)
 
 ####you need to make a different data structure in order to get the list of tokens without sentbreak
@@ -335,16 +335,16 @@ for j in range(3):
     # begin a clean computational graph
     dy.renew_cg()
     # build the batch
-    batch_tokens = make_data(train)[0][j*batch_size:(j+1)*batch_size]
-    batch_labels = make_data(train)[0][j*batch_size:(j+1)*batch_size]
+    batch_tokens = split_sentences(train)[0][j*batch_size:(j+1)*batch_size]
+    batch_labels = train_labels[j*batch_size:(j+1)*batch_size]
     # iterate through the batch
     for k in range(len(batch_tokens)):
         # prepare input: words to indexes
         seq_of_idxs = convert_words(batch_tokens[k])
         # make a forward pass
         preds = forward_pass(seq_of_idxs)
-        print(preds[1])
-        print(batch_labels[1][1])
+        #print(preds[1])
+        #print(batch_labels[1][1])
         # calculate loss for each token in each example
         loss = [dy.pickneglogsoftmax(preds[l], batch_labels[k][l]) for l in range(len(preds))]
         # sum the loss for each token
