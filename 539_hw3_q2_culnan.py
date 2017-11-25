@@ -27,7 +27,7 @@ def connect_pos(dataset):
     w_t_pair = [('sentstart', 'sentstart')]
     with open(dataset, 'r') as datafile:
         for line in datafile:
-            #line = line.lower()
+            line = line.lower()
             line = line.strip()
             if len(line) > 1:
                 wd_pos = line.split('\t')
@@ -137,75 +137,28 @@ def split_sentences(dataset):
         tagset2.append(tag)
     return sentenceset2, tagset2
 
-#88.2% with correct 
-def count_wt_probability(tag, word, dataset, t_dict='NONE',wt_ct_dict='NONE'):
-    ##this returns prob of a word given the tag 
-    tag_and_word_count   = 0
-    tag_count            = 0
-    wt_prob              = 0.0
-    if t_dict=='NONE' and wt_ct_dict=='NONE':
-        t_dict   = tag_dict(dataset)
-        wt_ct_dict = w_t_dict(dataset)
-    try:
-        wt_prob = float(wt_ct_dict[(word,tag)] / t_dict[tag])
-    except:
-        wt_prob = 0.0
-    return wt_prob
-
-def add_one_wt(tag, word, dataset, t_dict='NONE',wt_ct_dict='NONE'):
-    ##this returns the prob of word given tag with add-one smoothing
-    ####ADDED FOR QUESTION 2
-    tag_given_word_count = 0
-    word_count           = 0
-    ##need a k to add to denominator
-    wordset              = create_wordset(train)
-    k                    = len(wordset)
-    k_list               = []
-    wt_ct_list           = []
-    wt_prob              = 0.0
-    if t_dict=='NONE' and wt_ct_dict=='NONE':
-        t_dict       = tag_dict(dataset)
-        wt_ct_dict   = w_t_dict(dataset)
-    ##calculate k using all word types that occur with the tag t
-    if (word,tag) in wt_ct_dict:
-        wt_prob = (wt_ct_dict[(word,tag)] + 1) / (t_dict[tag] + k)
-    else:
-        wt_prob = 1 / (t_dict[tag] + k)
-    return wt_prob
-
-def add_one_tags(tag, prev_tag, dataset, tags='NONE'):
-    ##counts probability of a tag given a previous tag
-    tag_and_prev_count      = 0
-    prev_t_count            = 0
-    count_prob              = 0.0
-    if tags == 'NONE':
-        tags = connect_pos(dataset)[1]
+def tag_prevt_counts(dataset):
+    tags = connect_pos(dataset)[1]
+    for tag in tags:
+        if tag == 'sentbreak':
+            tags.remove(tag)
+    tagset  = create_tagset(dataset)
+    tagset2 = create_tagset(dataset)
+    tt_counts = {}
     for i in range(len(tags)):
-        if tags[i-1] == prev_tag:
-            if tags[i] == tag:
-                tag_and_prev_count += 1
-            prev_t_count += 1
-    count_prob = (tag_and_prev_count + 1) / (prev_t_count + 46)
-    return count_prob
-
-def count_tag_probability(tag, prev_tag, dataset, tags='NONE'):
-    ##counts probability of a tag given a previous tag
-    tag_and_prev_count      = 0
-    prev_t_count            = 0
-    count_prob              = 0.0
-    if tags == 'NONE':
-        tags = connect_pos(dataset)[1]
-    for i in range(len(tags)):
-        if tags[i-1] == prev_tag:
-            if tags[i] == tag:
-                tag_and_prev_count += 1
-            prev_t_count += 1
-    count_prob = tag_and_prev_count / prev_t_count
-    return count_prob
+        current = tags[i]
+        last    = tags[i-1]
+        if (current, last) not in tt_counts:
+            tt_counts[(current,last)] = 1
+        else:
+            tt_counts[(current,last)] += 1
+    return tt_counts
 
 def create_tag_prevt_matrix(dataset, t1t2_pickle='t1t2.p'):
-	###first half of training, which makes matrix of tag transitions
+    ###first half of training, which makes matrix of tag transitions
     tags       = connect_pos(dataset)[1]
+    tt_dict    = tag_prevt_counts(dataset)
+    t_dict     = tag_dict(dataset)
     for tag in tags:
         if tag == 'sentbreak':
             tags.remove(tag)
@@ -214,8 +167,12 @@ def create_tag_prevt_matrix(dataset, t1t2_pickle='t1t2.p'):
     tag_matrix = np.zeros((len(tagset),len(tagset)))
     for prev_tag in tagset:
         for tag in tagset2:
-            tag_matrix[tagset.index(prev_tag)][tagset2.index(tag)] = count_tag_probability(tag,prev_tag,dataset,tags)
+            if (tag, prev_tag) in tt_dict:
+                tag_matrix[tagset.index(prev_tag)][tagset2.index(tag)] = (tt_dict[(tag, prev_tag)] + 1) / (t_dict[prev_tag] + len(tagset))
+            else:
+                tag_matrix[tagset.index(prev_tag)][tagset2.index(tag)] = 1 / (t_dict[prev_tag] + len(tagset))
     pickle.dump(tag_matrix, open(t1t2_pickle, "wb"))
+    print('tt-matrix complete!')
     return tag_matrix
 
 def create_wd_tag_matrix(dataset, wt_pickle='wt.p'):
@@ -224,20 +181,27 @@ def create_wd_tag_matrix(dataset, wt_pickle='wt.p'):
     wt_ct_dict   = w_t_dict(dataset)
     tagset       = create_tagset(dataset)
     wordset      = create_wordset(dataset)
+    k            = len(wordset)
     wt_matrix    = np.zeros((len(wordset), len(tagset)))
     for word in wordset:
+        if (len(wordset) - wordset.index(word)) % 50 == 0:
+            print(len(wordset) - wordset.index(word))
         for tag in tagset:
-            wt_matrix[wordset.index(word)][tagset.index(tag)] = count_wt_probability(tag,word,dataset,t_dict,wt_ct_dict)
+            if (word,tag) in wt_ct_dict:
+                wt_matrix[wordset.index(word)][tagset.index(tag)] = (wt_ct_dict[(word,tag)] + 1) / (t_dict[tag] + k)
+            else:
+                wt_matrix[wordset.index(word)][tagset.index(tag)] = 1 / (t_dict[tag] + k)
     pickle.dump(wt_matrix, open(wt_pickle, "wb"))
+    print('wt-matrix complete!')
     return wt_matrix.shape
 
 # 9:24 correct
 # X:XX with wrong counts for wt probs
 def training(dataset, t1t2_pickle='t1t2.p', wt_pickle='wt.p'):
-	##this function puts the two halves of training together to create both matrices
-	create_wd_tag_matrix(dataset, wt_pickle)
-	create_tag_prevt_matrix(dataset, t1t2_pickle)
-	return 'Done! Your pickles have been created'
+    ##this function puts the two halves of training together to create both matrices
+    create_wd_tag_matrix(dataset, wt_pickle)
+    create_tag_prevt_matrix(dataset, t1t2_pickle)
+    return 'Done! Your pickles have been created'
 
 #3:47 greedy 
 def greedy_test(dataset, t1t2_pickle='t1t2.p', wt_pickle='wt.p'):
@@ -249,6 +213,9 @@ def greedy_test(dataset, t1t2_pickle='t1t2.p', wt_pickle='wt.p'):
     #get tagset and wordset from training
     tagset      = create_tagset(train)
     wordset     = create_wordset(train)
+    #create tagdict
+    t_dict      = tag_dict(dataset)
+    k           = len(wordset)
     #create empty list for predictions
     tag_preds   = []
     unknowns    = []
@@ -268,13 +235,13 @@ def greedy_test(dataset, t1t2_pickle='t1t2.p', wt_pickle='wt.p'):
                 ##this is the last thing you added (270 - 277)
                 if word in wordset:
                     [single_pred.append(wt_matrix[wordset.index(word)][i] * t1t2_matrix[tagset.index(tag_preds[-1])][i]) for i in range(len(tagset))]
-                else:
-                    [single_pred.append(t1t2_matrix[tagset.index(tag_preds[-1])][i]) for i in range(len(tagset))]
+                elif word not in wordset:
+                    [single_pred.append((1 / (t_dict[tagset[i]] + k)) * t1t2_matrix[tagset.index(tag_preds[-1])][i]) for i in range(len(tagset))]
                 tag_preds.append(tagset[single_pred.index(max(single_pred))])
                 single_pred = []
     return tag_preds
 
-def word_accuracy(dataset, t1t2_pickle='tt_pickle1.p', wt_pickle='wt_pickle1.p'):
+def word_accuracy(dataset, t1t2_pickle='t1t2.p', wt_pickle='wt.p'):
     ##returns the overall word accuracy for a given dataset
     test_results = greedy_test(dataset, t1t2_pickle, wt_pickle)
     tag_preds    = test_results
@@ -300,7 +267,9 @@ def word_accuracy(dataset, t1t2_pickle='tt_pickle1.p', wt_pickle='wt_pickle1.p')
     for item in unknowns:
         if tag_preds[item] == gold_tags[item]:
             unknown_corr += 1
+    print(unknown_corr)
     unknown_total = len(unknowns)
+    print(unknown_total)
     for i in range(len(tag_preds)):
         total_count += 1
         if tag_preds[i] == gold_tags[i]:
@@ -309,24 +278,8 @@ def word_accuracy(dataset, t1t2_pickle='tt_pickle1.p', wt_pickle='wt_pickle1.p')
     unk_acc  = unknown_corr / unknown_total
     return correct_count, total_count, accuracy, unknown_corr, unknown_total, unk_acc
 
-#def word_accuracy(dataset, t1t2_pickle='t1t2.p', wt_pickle='wt.p'):
- #   ##returns the overall word accuracy for a given dataset
-  #  test_results = greedy_test(dataset, t1t2_pickle, wt_pickle)
-   # tag_preds    = test_results
-    #gold_tags = connect_pos(test)[1]
-#    for item in gold_tags:
- #       if item == 'sentbreak':
-  #          gold_tags.remove(item)
-   # correct_count = 0
-    #total_count   = 0
-#    accuracy      = 0.0
- #   for i in range(len(tag_preds)):
-  #      total_count += 1
-   #     print(tag_preds[i], gold_tags[i])
-    #    if tag_preds[i] == gold_tags[i]:
-     #       correct_count += 1
-#    accuracy = correct_count / total_count
- #   return correct_count, total_count, accuracy
+def unknown_wd_acc(dataset, t1t2_pickle='t1t2.p', wt_pickle='wt.p'):
+    unknowns = greedy_test(dataset, t1t2_pickle, wt_pickle)[1]
 
 #def sent_accuracy(dataset, t1t2_pickle='t1t2.p'):
 
@@ -334,8 +287,8 @@ def word_accuracy(dataset, t1t2_pickle='tt_pickle1.p', wt_pickle='wt_pickle1.p')
 
 #print(create_wd_tag_matrix(train))
 
-#print(training(train, t1t2_pickle='t1t2_right.p', wt_pickle='wt_right.p'))
-#print(word_accuracy(test, t1t2_pickle='t1t2_right.p', wt_pickle='wt_right.p'))
+print(training(train, t1t2_pickle='t1t2_q2_altered.p', wt_pickle='wt_q2_altered.p'))
+print(word_accuracy(test, t1t2_pickle='t1t2_q2_altered.p', wt_pickle='wt_q2_altered.p'))
 
-#53595 / 59017 = 90.8128% total accuracy
-#1338 / 4030 = 33.201% unknown word accuracy
+#51158, 59017, 86.6835% with 'q2' pickles
+#1210, 4030, 30.02% unknown word accuracy with add_one smoothing
