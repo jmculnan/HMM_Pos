@@ -207,11 +207,28 @@ def indexed_wordset(dataset):
 			count += 1
 	return indexed_wordset
 
+def words2indexes(seq_of_words, w2i_lookup):
+    """
+    This function converts our sentence into a sequence of indexes that correspond to the rows in our embedding matrix
+    :param seq_of_words: the document as a <list> of words
+    :param w2i_lookup: the lookup table of {word:index} that we built earlier
+    """
+    seq_of_idxs = []
+    for w in seq_of_words:
+        w = w.lower()            # lowercase
+        i = w2i_lookup.get(w, 0) # we use the .get() method to allow for default return value if the word is not found
+                                 # we've reserved the 0th row of embedding matrix for out-of-vocabulary words
+        seq_of_idxs.append(i)
+    return seq_of_idxs
+
 labeled_pos = create_tagset(train)
 reverse_labels = dict((value, key) for key, value in labeled_pos.items())
 
 ###from Mike Capizzi's tutorial
+train_sents = split_sentences(train)[0]
 train_labels = [[labeled_pos[label] for label in sent] for sent in split_sentences(train)[1]]
+
+test_sents = split_sentences(test)[0]
 test_labels = [[labeled_pos[label] for label in sent] for sent in split_sentences(test)[1]]
 
 #building the model
@@ -223,7 +240,7 @@ hidden_size    = 200
 num_layers     = 1
 
 ###from Mike Capizzi's tutorial
-emb_matrix_pretrained, w2i_pretrained = capizziutils.load_pretrained_embeddings(embeddings) #only top 10k words
+emb_matrix_pretrained, w2i_pretrained = capizziutils.load_pretrained_embeddings(embeddings)
 embedding_dimensions = emb_matrix_pretrained.shape[1]
 embedding_params = RNN_model.lookup_parameters_from_numpy(emb_matrix_pretrained)
 word_indices = w2i_pretrained
@@ -235,18 +252,6 @@ RNN = dy.GRUBuilder(num_layers, embedding_dimensions, hidden_size, RNN_model)
 pW = RNN_model.add_parameters((hidden_size, len(list(labeled_pos.keys()))))
 pb = RNN_model.add_parameters(len(list(labeled_pos.keys())))
 
-
-#def convert_words(dataset):
-#	sentences = split_sentences(dataset)[0]
-#	idx_wordset = indexed_wordset(dataset)
-#	indices = []
-#	for sentence in sentences:
-#		for word in sentence:
-#		    word = word.lower()
-#		    num  = idx_wordset.get(word, 0)
-#		    indices.append(num)
-#	return indices
-
 def convert_words(wordlist):
 	idx_wordset = indexed_wordset(train)
 	indices = []
@@ -256,8 +261,6 @@ def convert_words(wordlist):
 		indices.append(num)
 	return indices
 
-print('the results of convert words are:')
-print(convert_words(['sentstart', 'the', 'big', 'man', 'is', 'here', '.']))
 
 ###from Mike Capizzi's tutorial
 def forward_pass(word_indices):
@@ -269,18 +272,12 @@ def forward_pass(word_indices):
 	rnn_outputs = [dy.transpose(W) * h + b for h in rnn_hidden_outputs]
 	return rnn_outputs
 
-print('the results of the forward pass are:')
-print([forward_pass([12,19,231,1,16])])
-
 ###from Mike Capizzi's tutorial
 def predict(output_list):
     prediction_probs = [dy.softmax(out) for out in output_list]
     prediction_probs_np = [out.npvalue() for out in prediction_probs]
     prediction_probs_idx = [np.argmax(out) for out in prediction_probs_np]
     return prediction_probs_idx
-
-print('the results of predict are:')
-print(predict(forward_pass(convert_words(['sentstart','the','big','man','is','here','.']))))
 
 trainer = dy.SimpleSGDTrainer(m=RNN_model, learning_rate=0.01)
 
@@ -309,9 +306,7 @@ def word_accuracy(dataset, results):
     for item in unknowns:
         if tag_preds[item] == gold_tags[item]:
             unknown_corr += 1
-    print(unknown_corr)
     unknown_total = len(unknowns)
-    print(unknown_total)
     for i in range(len(tag_preds)):
         total_count += 1
         if tag_preds[i] == gold_tags[i]:
@@ -323,40 +318,12 @@ def word_accuracy(dataset, results):
 batch_size = 256
 num_batches_training = int(np.ceil(len(split_sentences(train)[0]) / batch_size))
 num_batches_testing  = int(np.ceil(len(split_sentences(test)[0]) / batch_size))
-print(num_batches_training, num_batches_testing)
 
 ####you need to make a different data structure in order to get the list of tokens without sentbreak
 ####and not split up by sentences--you need to use that probably everywhere where you see split sentences
 ###in this question and also wherever it asks for the data
 
 sample_sentence = ['sentstart', 'this', 'is', 'my', 'favorite', 'thing', 'to', 'do', '.']
-#from capizzi's tutorial 
-for j in range(3):
-    # begin a clean computational graph
-    dy.renew_cg()
-    # build the batch
-    batch_tokens = split_sentences(train)[0][j*batch_size:(j+1)*batch_size]
-    batch_labels = train_labels[j*batch_size:(j+1)*batch_size]
-    # iterate through the batch
-    for k in range(len(batch_tokens)):
-        # prepare input: words to indexes
-        seq_of_idxs = convert_words(batch_tokens[k])
-        # make a forward pass
-        preds = forward_pass(seq_of_idxs)
-        #print(preds[1])
-        #print(batch_labels[1][1])
-        # calculate loss for each token in each example
-        loss = [dy.pickneglogsoftmax(preds[l], batch_labels[k][l]) for l in range(len(preds))]
-        # sum the loss for each token
-        sent_loss = dy.esum(loss)
-        # backpropogate the loss for the sentence
-        sent_loss.backward()
-        trainer.update()
-    if j % 5 == 0:
-        print("batch {}".format(j+1))
-        sample = forward_pass(convert_words(sample_sentence))
-        predictions = [reverse_labels[p] for p in predict(sample)]
-        print(list(zip(sample_sentence, predictions)))
 
 #from capizzi's tutorial
 def evaluate(nested_preds, nested_true):
@@ -385,12 +352,12 @@ def test():
         # begin a clean computational graph
         dy.renew_cg()
         # build the batch
-        batch_tokens = split_sentences(train)[0][j*batch_size:(j+1)*batch_size]
-        batch_labels = train_labels[j*batch_size:(j+1)*batch_size]
+        batch_tokens = test_sents[j*batch_size:(j+1)*batch_size]
+        batch_labels = test_labels[j*batch_size:(j+1)*batch_size]
         # iterate through the batch
         for k in range(len(batch_tokens)):
             # prepare input: words to indexes
-            seq_of_idxs = words2indexes(batch_tokens[k], w2i)
+            seq_of_idxs = convert_words(batch_tokens[k], word_indices)
             # make a forward pass
             preds = forward_pass(seq_of_idxs)
             label_preds = predict(preds)
@@ -425,12 +392,12 @@ def train():
             # begin a clean computational graph
             dy.renew_cg()
             # build the batch
-            batch_tokens = train_tokens[j*batch_size:(j+1)*batch_size]
+            batch_tokens = train_sents[j*batch_size:(j+1)*batch_size]
             batch_labels = train_labels[j*batch_size:(j+1)*batch_size]
             # iterate through the batch
             for k in range(len(batch_tokens)):
                 # prepare input: words to indexes
-                seq_of_idxs = words2indexes(batch_tokens[k], w2i)
+                seq_of_idxs = words2indexes(batch_tokens[k], word_indices)
                 # make a forward pass
                 preds = forward_pass(seq_of_idxs)
                 # calculate loss for each token in each example
@@ -444,11 +411,12 @@ def train():
             # check prediction of sample sentence
             if j % 250 == 0:
                 print("epoch {}, batch {}".format(i+1, j+1))
-                sample = forward_pass(words2indexes(sample_sentence, w2i))
-                predictions = [i2l[p] for p in predict(sample)]
+                sample = forward_pass(words2indexes(sample_sentence, word_indices))
+                predictions = [reverse_labels[p] for p in predict(sample)]
                 print(list(zip(sample_sentence, predictions)))
         # record epoch loss
         epoch_losses.append(np.sum(epoch_loss))
+        trainer.save('RNN_epoch' + i + '.model')
         # get accuracy on test set
         print("testing after epoch {}".format(i+1))
         epoch_predictions = test()
